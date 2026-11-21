@@ -1,0 +1,2058 @@
+local Players = game:GetService("Players")
+local Workspace = game:GetService("Workspace")
+local RunService = game:GetService("RunService")
+local TweenService = game:GetService("TweenService")
+local Lighting = game:GetService("Lighting")
+local UserInputService = game:GetService("UserInputService")
+
+local player = Players.LocalPlayer
+local character = player.Character or player.CharacterAdded:Wait()
+local rootPart = character:WaitForChild("HumanoidRootPart")
+local backpack = player:WaitForChild("Backpack")
+local playerGui = player:WaitForChild("PlayerGui")
+local camera = Workspace.CurrentCamera
+local mouse = player:GetMouse()
+
+-- Cấu hình tốc độ: Hạt giữ nguyên 14, Nhân vật 28
+local SEED_SPEED = 14
+local PLAYER_SPEED = 28
+
+local function applyPlayerSpeed(char)
+	if not char then return end
+	local hum = char:WaitForChild("Humanoid", 5)
+	if hum then
+		hum.WalkSpeed = PLAYER_SPEED
+	end
+end
+
+applyPlayerSpeed(character)
+player.CharacterAdded:Connect(function(newChar)
+	character = newChar
+	rootPart = newChar:WaitForChild("HumanoidRootPart")
+	applyPlayerSpeed(newChar)
+end)
+
+-- 1. Hệ thống Tiền ở cuối góc trái màn hình + Hiển thị thời gian hiệu lực của Code kế bên
+local leaderstats = player:FindFirstChild("leaderstats")
+if not leaderstats then
+	leaderstats = Instance.new("Folder")
+	leaderstats.Name = "leaderstats"
+	leaderstats.Parent = player
+end
+
+local moneyStat = leaderstats:FindFirstChild("Tiền")
+if not moneyStat then
+	moneyStat = Instance.new("IntValue")
+	moneyStat.Name = "Tiền"
+	moneyStat.Value = 0
+	moneyStat.Parent = leaderstats
+end
+
+local moneyGui = Instance.new("ScreenGui")
+moneyGui.Name = "MoneyGui"
+moneyGui.ResetOnSpawn = false
+moneyGui.Parent = playerGui
+
+local moneyLabel = Instance.new("TextLabel")
+moneyLabel.Size = UDim2.new(0, 140, 0, 36)
+moneyLabel.Position = UDim2.new(0, 15, 1, -50)
+moneyLabel.BackgroundColor3 = Color3.fromRGB(25, 25, 25)
+moneyLabel.BackgroundTransparency = 0.3
+moneyLabel.TextColor3 = Color3.fromRGB(255, 223, 0)
+moneyLabel.Font = Enum.Font.GothamBold
+moneyLabel.TextSize = 16
+moneyLabel.Text = "0 $"
+moneyLabel.Parent = moneyGui
+
+local moneyCorner = Instance.new("UICorner")
+moneyCorner.CornerRadius = UDim.new(0, 8)
+moneyCorner.Parent = moneyLabel
+
+moneyStat.Changed:Connect(function(val)
+	moneyLabel.Text = val .. " $"
+end)
+
+-- Nhãn đếm ngược thời gian code x2 tiền (kế bên ô Tiền)
+local x2TimerLabel = Instance.new("TextLabel")
+x2TimerLabel.Size = UDim2.new(0, 130, 0, 36)
+x2TimerLabel.Position = UDim2.new(0, 162, 1, -50)
+x2TimerLabel.BackgroundColor3 = Color3.fromRGB(30, 85, 35)
+x2TimerLabel.BackgroundTransparency = 0.2
+x2TimerLabel.TextColor3 = Color3.fromRGB(120, 255, 140)
+x2TimerLabel.Font = Enum.Font.GothamBold
+x2TimerLabel.TextSize = 13
+x2TimerLabel.Text = ""
+x2TimerLabel.Visible = false
+x2TimerLabel.Parent = moneyGui
+
+local x2Corner = Instance.new("UICorner")
+x2Corner.CornerRadius = UDim.new(0, 8)
+x2Corner.Parent = x2TimerLabel
+
+-- Nhãn đếm ngược thời gian code Mua 1 tặng 1 (kế bên ô Tiền / ô x2)
+local bogoTimerLabel = Instance.new("TextLabel")
+bogoTimerLabel.Size = UDim2.new(0, 155, 0, 36)
+bogoTimerLabel.Position = UDim2.new(0, 162, 1, -50)
+bogoTimerLabel.BackgroundColor3 = Color3.fromRGB(95, 55, 15)
+bogoTimerLabel.BackgroundTransparency = 0.2
+bogoTimerLabel.TextColor3 = Color3.fromRGB(255, 210, 90)
+bogoTimerLabel.Font = Enum.Font.GothamBold
+bogoTimerLabel.TextSize = 13
+bogoTimerLabel.Text = ""
+bogoTimerLabel.Visible = false
+bogoTimerLabel.Parent = moneyGui
+
+local bogoCorner = Instance.new("UICorner")
+bogoCorner.CornerRadius = UDim.new(0, 8)
+bogoCorner.Parent = bogoTimerLabel
+
+-- Xóa map cũ nếu đang tồn tại
+local oldMap = Workspace:FindFirstChild("CarrotFarmMap")
+if oldMap then oldMap:Destroy() end
+
+local mapFolder = Instance.new("Folder")
+mapFolder.Name = "CarrotFarmMap"
+mapFolder.Parent = Workspace
+
+local centerPos = Vector3.new(rootPart.Position.X, rootPart.Position.Y - 3, rootPart.Position.Z)
+local mapSize = 380
+
+-- 2. Thảm cỏ
+local grass = Instance.new("Part")
+grass.Name = "GrassGround"
+grass.Size = Vector3.new(mapSize, 1, mapSize)
+grass.Position = centerPos
+grass.Anchored = true
+grass.Color = Color3.fromRGB(46, 139, 87)
+grass.Material = Enum.Material.Grass
+grass.Parent = mapFolder
+
+-- 3. Tường rào cao 50m bao quanh
+local wallThickness = 2
+local wallHeight = 50
+local wallsData = {
+	{Size = Vector3.new(mapSize, wallHeight, wallThickness), Offset = Vector3.new(0, wallHeight/2, -mapSize/2)},
+	{Size = Vector3.new(mapSize, wallHeight, wallThickness), Offset = Vector3.new(0, wallHeight/2, mapSize/2)},
+	{Size = Vector3.new(wallThickness, wallHeight, mapSize), Offset = Vector3.new(-mapSize/2, wallHeight/2, 0)},
+	{Size = Vector3.new(wallThickness, wallHeight, mapSize), Offset = Vector3.new(mapSize/2, wallHeight/2, 0)},
+}
+
+for _, w in ipairs(wallsData) do
+	local wall = Instance.new("Part")
+	wall.Size = w.Size
+	wall.Position = centerPos + w.Offset
+	wall.Anchored = true
+	wall.Color = Color3.fromRGB(90, 70, 50)
+	wall.Material = Enum.Material.WoodPlanks
+	wall.Parent = mapFolder
+end
+
+-- 4. Đường gỗ xuyên suốt ở giữa
+local path = Instance.new("Part")
+path.Name = "SeedPath"
+path.Size = Vector3.new(6, 1.1, mapSize)
+path.Position = centerPos + Vector3.new(0, 0.05, 0)
+path.Anchored = true
+path.Color = Color3.fromRGB(160, 115, 80)
+path.Material = Enum.Material.WoodPlanks
+path.Parent = mapFolder
+
+-- 5. Hang Đen (Hang hạt giống)
+local caveZ = centerPos.Z - (mapSize / 2) + 5
+local cave = Instance.new("Part")
+cave.Name = "BlackCave"
+cave.Size = Vector3.new(10, 8, 8)
+cave.Position = Vector3.new(centerPos.X, centerPos.Y + 4, caveZ)
+cave.Anchored = true
+cave.Color = Color3.fromRGB(15, 15, 15)
+cave.Material = Enum.Material.Slate
+cave.Parent = mapFolder
+
+local surfaceGui = Instance.new("SurfaceGui")
+surfaceGui.Face = Enum.NormalId.Front
+surfaceGui.Parent = cave
+
+local textLabel = Instance.new("TextLabel")
+textLabel.Size = UDim2.new(1, 0, 1, 0)
+textLabel.BackgroundTransparency = 1
+textLabel.Text = "HANG HẠT GIỐNG"
+textLabel.TextColor3 = Color3.fromRGB(0, 255, 127)
+textLabel.TextScaled = true
+textLabel.Font = Enum.Font.GothamBold
+textLabel.Parent = surfaceGui
+
+-- 6. Tạo NPC Bacon kế bên Hang Đen
+local baconModel = Instance.new("Model")
+baconModel.Name = "BaconNPC"
+baconModel.Parent = mapFolder
+
+local baconTorso = Instance.new("Part")
+baconTorso.Name = "Torso"
+baconTorso.Size = Vector3.new(2, 2.2, 1)
+baconTorso.Position = Vector3.new(centerPos.X + 9, centerPos.Y + 2.5, caveZ + 2)
+baconTorso.Anchored = true
+baconTorso.Color = Color3.fromRGB(45, 90, 160)
+baconTorso.Parent = baconModel
+
+local baconHead = Instance.new("Part")
+baconHead.Name = "Head"
+baconHead.Size = Vector3.new(1.5, 1.5, 1.5)
+baconHead.Position = baconTorso.Position + Vector3.new(0, 1.85, 0)
+baconHead.Anchored = true
+baconHead.Color = Color3.fromRGB(240, 200, 150)
+baconHead.Parent = baconModel
+
+local baconHair = Instance.new("Part")
+baconHair.Name = "BaconHair"
+baconHair.Size = Vector3.new(1.7, 0.7, 1.7)
+baconHair.Position = baconHead.Position + Vector3.new(0, 0.8, 0)
+baconHair.Anchored = true
+baconHair.Color = Color3.fromRGB(115, 65, 35)
+baconHair.Parent = baconModel
+
+local baconLegs = Instance.new("Part")
+baconLegs.Name = "Legs"
+baconLegs.Size = Vector3.new(2, 2, 1)
+baconLegs.Position = baconTorso.Position - Vector3.new(0, 2.1, 0)
+baconLegs.Anchored = true
+baconLegs.Color = Color3.fromRGB(35, 35, 45)
+baconLegs.Parent = baconModel
+
+local baconGui = Instance.new("BillboardGui")
+baconGui.Size = UDim2.new(0, 150, 0, 40)
+baconGui.StudsOffset = Vector3.new(0, 2.2, 0)
+baconGui.AlwaysOnTop = true
+baconGui.Parent = baconHead
+
+local baconLbl = Instance.new("TextLabel")
+baconLbl.Size = UDim2.new(1, 0, 1, 0)
+baconLbl.BackgroundTransparency = 1
+baconLbl.Text = "bacon"
+baconLbl.TextColor3 = Color3.fromRGB(255, 255, 255)
+baconLbl.TextStrokeTransparency = 0
+baconLbl.Font = Enum.Font.GothamBold
+baconLbl.TextScaled = true
+baconLbl.Parent = baconGui
+
+-- 7. Tạo 4 khu đất mở rộng gấp 4 lần (100x60)
+local farmPlots = {}
+local plotOwners = { player.Name, "Trống", "Trống", "Trống" }
+local plotSize = Vector3.new(100, 0.8, 60)
+local plotPositions = {
+	Vector3.new(-65, 0.6, -55), Vector3.new(-65, 0.6, 55),
+	Vector3.new(65, 0.6, -55),  Vector3.new(65, 0.6, 55)
+}
+
+for i = 1, 4 do
+	local plot = Instance.new("Part")
+	plot.Name = "FarmPlot_" .. i
+	plot.Size = plotSize
+	plot.Position = centerPos + plotPositions[i]
+	plot.Anchored = true
+	plot.Color = Color3.fromRGB(110, 75, 45)
+	plot.Material = Enum.Material.Slate
+	plot.Parent = mapFolder
+
+	local bg = Instance.new("BillboardGui")
+	bg.Name = "OwnerSign"
+	bg.Size = UDim2.new(0, 180, 0, 75)
+	bg.StudsOffset = Vector3.new(0, 3.5, 0)
+	bg.AlwaysOnTop = true
+	bg.Parent = plot
+
+	local frame = Instance.new("Frame")
+	frame.Size = UDim2.new(1, 0, 1, 0)
+	frame.BackgroundColor3 = Color3.fromRGB(20, 20, 20)
+	frame.BackgroundTransparency = 0.3
+	frame.Parent = bg
+
+	local corner = Instance.new("UICorner")
+	corner.CornerRadius = UDim.new(0, 8)
+	corner.Parent = frame
+
+	local img = Instance.new("ImageLabel")
+	img.Size = UDim2.new(0, 45, 0, 45)
+	img.Position = UDim2.new(0, 8, 0.5, -22)
+	img.BackgroundTransparency = 1
+	img.Parent = frame
+
+	local lbl = Instance.new("TextLabel")
+	lbl.Size = UDim2.new(1, -55, 1, 0)
+	lbl.Position = UDim2.new(0, 55, 0, 0)
+	lbl.BackgroundTransparency = 1
+	lbl.TextColor3 = Color3.fromRGB(255, 255, 255)
+	lbl.TextStrokeTransparency = 0
+	lbl.Font = Enum.Font.GothamBold
+	lbl.TextSize = 13
+	lbl.Parent = frame
+
+	if plotOwners[i] ~= "Trống" then
+		pcall(function()
+			img.Image = Players:GetUserThumbnailAsync(player.UserId, Enum.ThumbnailType.HeadShot, Enum.ThumbnailSize.Size42x42)
+		end)
+		lbl.Text = plotOwners[i]
+	else
+		img.Visible = false
+		lbl.Position = UDim2.new(0, 0, 0, 0)
+		lbl.Size = UDim2.new(1, 0, 1, 0)
+		lbl.Text = "Trống"
+		lbl.TextScaled = true
+	end
+
+	table.insert(farmPlots, {Part = plot, Owner = plotOwners[i]})
+end
+
+-- 8. Thông báo nhỏ màu vàng trên màn hình
+local notifyGui = Instance.new("ScreenGui")
+notifyGui.Name = "NotificationGui"
+notifyGui.ResetOnSpawn = false
+notifyGui.Parent = playerGui
+
+local notifyLabel = Instance.new("TextLabel")
+notifyLabel.Size = UDim2.new(0, 380, 0, 48)
+notifyLabel.Position = UDim2.new(0.5, -190, 0.12, 0)
+notifyLabel.BackgroundColor3 = Color3.fromRGB(255, 200, 50)
+notifyLabel.TextColor3 = Color3.fromRGB(30, 30, 30)
+notifyLabel.Font = Enum.Font.GothamBold
+notifyLabel.TextSize = 13
+notifyLabel.Text = ""
+notifyLabel.Visible = false
+notifyLabel.Parent = notifyGui
+
+local notifyCorner = Instance.new("UICorner")
+notifyCorner.CornerRadius = UDim.new(0, 8)
+notifyCorner.Parent = notifyLabel
+
+local function showNotification(msg, isError)
+	notifyLabel.Text = msg
+	if isError then
+		notifyLabel.BackgroundColor3 = Color3.fromRGB(255, 70, 70)
+		notifyLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
+	else
+		notifyLabel.BackgroundColor3 = Color3.fromRGB(255, 200, 50)
+		notifyLabel.TextColor3 = Color3.fromRGB(30, 30, 30)
+	end
+
+	notifyLabel.Visible = true
+	notifyLabel.TextTransparency = 0
+	notifyLabel.BackgroundTransparency = 0
+
+	task.delay(2.5, function()
+		local tween = TweenService:Create(notifyLabel, TweenInfo.new(0.25), {TextTransparency = 1, BackgroundTransparency = 1})
+		tween:Play()
+		tween.Completed:Connect(function()
+			notifyLabel.Visible = false
+		end)
+	end)
+end
+
+-- Trạng thái buff từ code (dùng os.clock() để đếm thời gian chính xác)
+local usedCodes = {}
+local doubleMoneyEndTime = 0
+local buyOneGetOneEndTime = 0
+
+local function isDoubleMoneyActive()
+	return os.clock() < doubleMoneyEndTime
+end
+
+local function isBuyOneGetOneActive()
+	return os.clock() < buyOneGetOneEndTime
+end
+
+local function formatMMSS(sec)
+	local s = math.max(0, math.ceil(sec))
+	local m = math.floor(s / 60)
+	local rem = s % 60
+	return string.format("%02d:%02d", m, rem)
+end
+
+-- Cập nhật đồng hồ đếm ngược hiệu lực code ngay cạnh ô Tiền
+RunService.Heartbeat:Connect(function()
+	local now = os.clock()
+	local remX2 = doubleMoneyEndTime - now
+	local remBogo = buyOneGetOneEndTime - now
+
+	local nextX = 162
+
+	if remX2 > 0 then
+		x2TimerLabel.Visible = true
+		x2TimerLabel.Position = UDim2.new(0, nextX, 1, -50)
+		x2TimerLabel.Text = "x2 Tiền: " .. formatMMSS(remX2)
+		nextX = nextX + 137
+	else
+		x2TimerLabel.Visible = false
+	end
+
+	if remBogo > 0 then
+		bogoTimerLabel.Visible = true
+		bogoTimerLabel.Position = UDim2.new(0, nextX, 1, -50)
+		bogoTimerLabel.Text = "Mua 1 tặng 1: " .. formatMMSS(remBogo)
+	else
+		bogoTimerLabel.Visible = false
+	end
+end)
+
+local harvestAllFruitsAction = nil
+
+-- 9. Giao diện Thu hoạch (bên trái Kho đồ), Kho đồ & Cài đặt
+local topGui = Instance.new("ScreenGui")
+topGui.Name = "TopMenuGui"
+topGui.ResetOnSpawn = false
+topGui.Parent = playerGui
+
+local btnHarvestMenu = Instance.new("TextButton")
+btnHarvestMenu.Size = UDim2.new(0, 74, 0, 38)
+btnHarvestMenu.Position = UDim2.new(0, 35, 0, 10)
+btnHarvestMenu.BackgroundColor3 = Color3.fromRGB(40, 40, 40)
+btnHarvestMenu.BackgroundTransparency = 0.3
+btnHarvestMenu.TextColor3 = Color3.fromRGB(255, 255, 255)
+btnHarvestMenu.Font = Enum.Font.GothamBold
+btnHarvestMenu.TextSize = 13
+btnHarvestMenu.Text = "Thu hoạch"
+btnHarvestMenu.Parent = topGui
+
+local harvBtnCorner = Instance.new("UICorner")
+harvBtnCorner.CornerRadius = UDim.new(0, 8)
+harvBtnCorner.Parent = btnHarvestMenu
+
+local harvestFrame = Instance.new("Frame")
+harvestFrame.Size = UDim2.new(0, 260, 0, 115)
+harvestFrame.Position = UDim2.new(0.5, -130, 0.25, -57)
+harvestFrame.BackgroundColor3 = Color3.fromRGB(30, 30, 30)
+harvestFrame.BackgroundTransparency = 0.12
+harvestFrame.Visible = false
+harvestFrame.Parent = topGui
+
+local harvFrameCorner = Instance.new("UICorner")
+harvFrameCorner.CornerRadius = UDim.new(0, 10)
+harvFrameCorner.Parent = harvestFrame
+
+local harvTitle = Instance.new("TextLabel")
+harvTitle.Size = UDim2.new(1, 0, 0, 34)
+harvTitle.BackgroundTransparency = 1
+harvTitle.Text = "THU HOẠCH NHANH"
+harvTitle.TextColor3 = Color3.fromRGB(255, 223, 0)
+harvTitle.Font = Enum.Font.GothamBold
+harvTitle.TextSize = 13
+harvTitle.Parent = harvestFrame
+
+local btnHarvestAllFruits = Instance.new("TextButton")
+btnHarvestAllFruits.Size = UDim2.new(1, -24, 0, 46)
+btnHarvestAllFruits.Position = UDim2.new(0, 12, 0, 46)
+btnHarvestAllFruits.BackgroundColor3 = Color3.fromRGB(215, 45, 55)
+btnHarvestAllFruits.TextColor3 = Color3.fromRGB(255, 255, 255)
+btnHarvestAllFruits.Font = Enum.Font.GothamBold
+btnHarvestAllFruits.TextSize = 13
+btnHarvestAllFruits.Text = "[ Thu hoạch tất cả trái cây! ]"
+btnHarvestAllFruits.Parent = harvestFrame
+
+local harvAllCorner = Instance.new("UICorner")
+harvAllCorner.CornerRadius = UDim.new(0, 8)
+harvAllCorner.Parent = btnHarvestAllFruits
+
+btnHarvestMenu.MouseButton1Click:Connect(function()
+	harvestFrame.Visible = not harvestFrame.Visible
+end)
+
+local btnInv = Instance.new("TextButton")
+btnInv.Size = UDim2.new(0, 62, 0, 38)
+btnInv.Position = UDim2.new(0, 115, 0, 10)
+btnInv.BackgroundColor3 = Color3.fromRGB(40, 40, 40)
+btnInv.BackgroundTransparency = 0.3
+btnInv.TextColor3 = Color3.fromRGB(255, 255, 255)
+btnInv.Font = Enum.Font.GothamBold
+btnInv.TextSize = 13
+btnInv.Text = "Kho đồ"
+btnInv.Parent = topGui
+
+local invCorner = Instance.new("UICorner")
+invCorner.CornerRadius = UDim.new(0, 8)
+invCorner.Parent = btnInv
+
+local invFrame = Instance.new("Frame")
+invFrame.Size = UDim2.new(0, 270, 0, 230)
+invFrame.Position = UDim2.new(0.5, -135, 0.3, -115)
+invFrame.BackgroundColor3 = Color3.fromRGB(30, 30, 30)
+invFrame.BackgroundTransparency = 0.15
+invFrame.Visible = false
+invFrame.Parent = topGui
+
+local invCorner2 = Instance.new("UICorner")
+invCorner2.CornerRadius = UDim.new(0, 10)
+invCorner2.Parent = invFrame
+
+local invTitle = Instance.new("TextLabel")
+invTitle.Size = UDim2.new(1, 0, 0, 38)
+invTitle.BackgroundTransparency = 1
+invTitle.Text = "KHO ĐỒ (BẤM ĐỂ CẦM)"
+invTitle.TextColor3 = Color3.fromRGB(255, 223, 0)
+invTitle.Font = Enum.Font.GothamBold
+invTitle.TextSize = 13
+invTitle.Parent = invFrame
+
+local invScroll = Instance.new("ScrollingFrame")
+invScroll.Size = UDim2.new(1, -20, 1, -50)
+invScroll.Position = UDim2.new(0, 10, 0, 42)
+invScroll.CanvasSize = UDim2.new(0, 0, 0, 0)
+invScroll.ScrollBarThickness = 5
+invScroll.BackgroundTransparency = 1
+invScroll.Parent = invFrame
+
+local invLayout = Instance.new("UIListLayout")
+invLayout.SortOrder = Enum.SortOrder.LayoutOrder
+invLayout.Padding = UDim.new(0, 6)
+invLayout.Parent = invScroll
+
+local function equipToolFromInventory(tool)
+	if not tool or not tool:IsA("Tool") then return end
+	local char = player.Character
+	local hum = char and char:FindFirstChildOfClass("Humanoid")
+	if hum and tool.Parent then
+		if tool.Parent == char then
+			hum:UnequipTools()
+		else
+			hum:EquipTool(tool)
+			showNotification("Đang cầm: " .. tool.Name, false)
+		end
+	end
+end
+
+local function refreshInventoryList()
+	for _, child in ipairs(invScroll:GetChildren()) do
+		if child:IsA("TextButton") or child:IsA("TextLabel") then
+			child:Destroy()
+		end
+	end
+
+	local collectedTools = {}
+	local bp = player:FindFirstChild("Backpack") or backpack
+	for _, item in ipairs(bp:GetChildren()) do
+		if item:IsA("Tool") then
+			table.insert(collectedTools, {tool = item, equipped = false})
+		end
+	end
+
+	local char = player.Character
+	if char then
+		for _, item in ipairs(char:GetChildren()) do
+			if item:IsA("Tool") then
+				table.insert(collectedTools, {tool = item, equipped = true})
+			end
+		end
+	end
+
+	for _, entry in ipairs(collectedTools) do
+		local toolRef = entry.tool
+		local itemBtn = Instance.new("TextButton")
+		itemBtn.Size = UDim2.new(1, 0, 0, 34)
+		itemBtn.BackgroundColor3 = entry.equipped and Color3.fromRGB(0, 145, 75) or Color3.fromRGB(52, 52, 52)
+		itemBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+		itemBtn.Font = Enum.Font.GothamBold
+		itemBtn.TextSize = 13
+		itemBtn.Text = (entry.equipped and "[Đang cầm] " or "") .. toolRef.Name
+		itemBtn.Parent = invScroll
+
+		local c = Instance.new("UICorner")
+		c.CornerRadius = UDim.new(0, 6)
+		c.Parent = itemBtn
+
+		itemBtn.MouseButton1Click:Connect(function()
+			equipToolFromInventory(toolRef)
+			task.wait(0.05)
+			if invFrame.Visible then
+				refreshInventoryList()
+			end
+		end)
+	end
+
+	invScroll.CanvasSize = UDim2.new(0, 0, 0, #collectedTools * 40)
+end
+
+btnInv.MouseButton1Click:Connect(function()
+	invFrame.Visible = not invFrame.Visible
+	if invFrame.Visible then
+		refreshInventoryList()
+	end
+end)
+
+-- Nút Cài Đặt (Settings)
+local btnSettings = Instance.new("TextButton")
+btnSettings.Size = UDim2.new(0, 42, 0, 38)
+btnSettings.Position = UDim2.new(0, 182, 0, 10)
+btnSettings.BackgroundColor3 = Color3.fromRGB(40, 40, 40)
+btnSettings.BackgroundTransparency = 0.3
+btnSettings.TextColor3 = Color3.fromRGB(255, 255, 255)
+btnSettings.Font = Enum.Font.GothamBold
+btnSettings.TextSize = 16
+btnSettings.Text = "⚙️"
+btnSettings.Parent = topGui
+
+local setCorner = Instance.new("UICorner")
+setCorner.CornerRadius = UDim.new(0, 8)
+setCorner.Parent = btnSettings
+
+local setFrame = Instance.new("Frame")
+setFrame.Size = UDim2.new(0, 300, 0, 240)
+setFrame.Position = UDim2.new(0.5, -150, 0.3, -120)
+setFrame.BackgroundColor3 = Color3.fromRGB(30, 30, 30)
+setFrame.BackgroundTransparency = 0.15
+setFrame.Visible = false
+setFrame.Parent = topGui
+
+local setCorner2 = Instance.new("UICorner")
+setCorner2.CornerRadius = UDim.new(0, 10)
+setCorner2.Parent = setFrame
+
+local setTitle = Instance.new("TextLabel")
+setTitle.Size = UDim2.new(1, 0, 0, 40)
+setTitle.BackgroundTransparency = 1
+setTitle.Text = "⚙️ CÀI ĐẶT & NHẬP CODE"
+setTitle.TextColor3 = Color3.fromRGB(255, 223, 0)
+setTitle.Font = Enum.Font.GothamBold
+setTitle.TextSize = 14
+setTitle.Parent = setFrame
+
+btnSettings.MouseButton1Click:Connect(function()
+	setFrame.Visible = not setFrame.Visible
+end)
+
+local gfxLabel = Instance.new("TextLabel")
+gfxLabel.Size = UDim2.new(0, 100, 0, 30)
+gfxLabel.Position = UDim2.new(0, 15, 0, 45)
+gfxLabel.BackgroundTransparency = 1
+gfxLabel.Text = "Đồ hoạ:"
+gfxLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
+gfxLabel.Font = Enum.Font.GothamBold
+gfxLabel.TextSize = 13
+gfxLabel.TextXAlignment = Enum.TextXAlignment.Left
+gfxLabel.Parent = setFrame
+
+local btnLow = Instance.new("TextButton")
+btnLow.Size = UDim2.new(0, 75, 0, 30)
+btnLow.Position = UDim2.new(0, 120, 0, 45)
+btnLow.BackgroundColor3 = Color3.fromRGB(100, 100, 100)
+btnLow.TextColor3 = Color3.fromRGB(255, 255, 255)
+btnLow.Font = Enum.Font.GothamBold
+btnLow.TextSize = 12
+btnLow.Text = "Thấp"
+btnLow.Parent = setFrame
+local c1 = Instance.new("UICorner"); c1.CornerRadius = UDim.new(0, 6); c1.Parent = btnLow
+
+local btnHigh = Instance.new("TextButton")
+btnHigh.Size = UDim2.new(0, 75, 0, 30)
+btnHigh.Position = UDim2.new(0, 205, 0, 45)
+btnHigh.BackgroundColor3 = Color3.fromRGB(0, 170, 0)
+btnHigh.TextColor3 = Color3.fromRGB(255, 255, 255)
+btnHigh.Font = Enum.Font.GothamBold
+btnHigh.TextSize = 12
+btnHigh.Text = "Cao"
+btnHigh.Parent = setFrame
+local c2 = Instance.new("UICorner"); c2.CornerRadius = UDim.new(0, 6); c2.Parent = btnHigh
+
+btnLow.MouseButton1Click:Connect(function()
+	btnLow.BackgroundColor3 = Color3.fromRGB(0, 170, 0)
+	btnHigh.BackgroundColor3 = Color3.fromRGB(100, 100, 100)
+	Lighting.Brightness = 1
+	Lighting.GlobalShadows = false
+	for _, obj in ipairs(Lighting:GetChildren()) do
+		if obj:IsA("Atmosphere") or obj:IsA("PostEffect") then
+			obj.Enabled = false
+		end
+	end
+	showNotification("Đã chuyển đồ hoạ: Thấp (Giảm lag)", false)
+end)
+
+btnHigh.MouseButton1Click:Connect(function()
+	btnHigh.BackgroundColor3 = Color3.fromRGB(0, 170, 0)
+	btnLow.BackgroundColor3 = Color3.fromRGB(100, 100, 100)
+	Lighting.Brightness = 2
+	Lighting.GlobalShadows = true
+	for _, obj in ipairs(Lighting:GetChildren()) do
+		if obj:IsA("Atmosphere") or obj:IsA("PostEffect") then
+			obj.Enabled = true
+		end
+	end
+	showNotification("Đã chuyển đồ hoạ: Cao (Đẹp)", false)
+end)
+
+local codeLabel = Instance.new("TextLabel")
+codeLabel.Size = UDim2.new(0, 150, 0, 30)
+codeLabel.Position = UDim2.new(0, 15, 0, 95)
+codeLabel.BackgroundTransparency = 1
+codeLabel.Text = "Nhập mã code vào:"
+codeLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
+codeLabel.Font = Enum.Font.GothamBold
+codeLabel.TextSize = 13
+codeLabel.TextXAlignment = Enum.TextXAlignment.Left
+codeLabel.Parent = setFrame
+
+local codeBox = Instance.new("TextBox")
+codeBox.Size = UDim2.new(0, 175, 0, 36)
+codeBox.Position = UDim2.new(0, 15, 0, 130)
+codeBox.BackgroundColor3 = Color3.fromRGB(50, 50, 50)
+codeBox.TextColor3 = Color3.fromRGB(255, 255, 255)
+codeBox.PlaceholderText = "Nhập code ở đây..."
+codeBox.Text = ""
+codeBox.Font = Enum.Font.Gotham
+codeBox.TextSize = 13
+codeBox.Parent = setFrame
+local c3 = Instance.new("UICorner"); c3.CornerRadius = UDim.new(0, 6); c3.Parent = codeBox
+
+local btnOk = Instance.new("TextButton")
+btnOk.Size = UDim2.new(0, 80, 0, 36)
+btnOk.Position = UDim2.new(0, 200, 0, 130)
+btnOk.BackgroundColor3 = Color3.fromRGB(0, 170, 0)
+btnOk.TextColor3 = Color3.fromRGB(255, 255, 255)
+btnOk.Font = Enum.Font.GothamBold
+btnOk.TextSize = 13
+btnOk.Text = "OK"
+btnOk.Parent = setFrame
+local c4 = Instance.new("UICorner"); c4.CornerRadius = UDim.new(0, 6); c4.Parent = btnOk
+
+btnOk.MouseButton1Click:Connect(function()
+	local rawCode = string.gsub(codeBox.Text, "^%s*(.-)%s*$", "%1")
+	if rawCode == "" then
+		showNotification("Vui lòng nhập mã code!", true)
+		return
+	end
+
+	local normalizedCode = string.lower(rawCode)
+
+	if usedCodes[normalizedCode] then
+		showNotification("Bạn đã nhập code này rồi.", true)
+		return
+	end
+
+	if normalizedCode == "gamebykhanh12345" then
+		usedCodes[normalizedCode] = true
+		moneyStat.Value = moneyStat.Value + 1500
+		codeBox.Text = ""
+		showNotification("Nhập code thành công! Nhận +1500 $", false)
+	elseif normalizedCode == "gamebeta201" then
+		usedCodes[normalizedCode] = true
+		doubleMoneyEndTime = os.clock() + (5 * 60)
+		codeBox.Text = ""
+		showNotification("Nhập code thành công! x2 tiền bán cây trong 5 phút", false)
+	elseif normalizedCode == "newgamemoi1000" then
+		usedCodes[normalizedCode] = true
+		buyOneGetOneEndTime = os.clock() + (2 * 60)
+		codeBox.Text = ""
+		showNotification("Nhập code thành công! Mua 1 tặng 1 hạt trong 2 phút", false)
+	else
+		showNotification("Mã code không hợp lệ!", true)
+	end
+end)
+
+-- 10. Menu NPC Bacon bên trái, cuộn lên xuống được
+local baconGuiMenu = Instance.new("ScreenGui")
+baconGuiMenu.Name = "BaconMenuGui"
+baconGuiMenu.ResetOnSpawn = false
+baconGuiMenu.Parent = playerGui
+
+local baconScroll = Instance.new("ScrollingFrame")
+baconScroll.Size = UDim2.new(0, 190, 0, 130)
+baconScroll.Position = UDim2.new(0, 20, 0.4, 0)
+baconScroll.CanvasSize = UDim2.new(0, 0, 0, 175)
+baconScroll.ScrollBarThickness = 5
+baconScroll.BackgroundColor3 = Color3.fromRGB(30, 30, 30)
+baconScroll.BackgroundTransparency = 0.25
+baconScroll.Visible = false
+baconScroll.Parent = baconGuiMenu
+
+local frameCorner = Instance.new("UICorner")
+frameCorner.CornerRadius = UDim.new(0, 10)
+frameCorner.Parent = baconScroll
+
+local function createMenuButton(name, text, yPos)
+	local btn = Instance.new("TextButton")
+	btn.Name = name
+	btn.Size = UDim2.new(0, 165, 0, 42)
+	btn.Position = UDim2.new(0, 10, 0, yPos)
+	btn.BackgroundColor3 = Color3.fromRGB(255, 165, 0)
+	btn.TextColor3 = Color3.fromRGB(255, 255, 255)
+	btn.Font = Enum.Font.GothamBold
+	btn.TextSize = 13
+	btn.Text = text
+	btn.Parent = baconScroll
+
+	local corner = Instance.new("UICorner")
+	corner.CornerRadius = UDim.new(0, 6)
+	corner.Parent = btn
+	return btn
+end
+
+local btnAll = createMenuButton("BtnAll", "[1.Bán Tất cả]", 10)
+local btnOne = createMenuButton("BtnOne", "[2.Bán 1]", 62)
+local btnPrice = createMenuButton("BtnPrice", "[3. Xem giá]", 114)
+
+local function isHarvestedCropTool(item)
+	return item:IsA("Tool") and item:GetAttribute("IsHarvestedCrop") == true
+end
+
+local function getCropPrices(tool)
+	local savedPrice = tool:GetAttribute("SellPrice")
+	local basePrice = savedPrice
+
+	if not basePrice then
+		local kg = tonumber(string.match(tool.Name, "%[([%d%.]+)kg%]")) or 1
+		if string.find(tool.Name, "Cây Tre") then
+			if kg < 10 then
+				basePrice = math.floor(15000 + (kg * 8400))
+			else
+				basePrice = math.floor(100500 + ((kg - 10) * 10500))
+			end
+		elseif string.find(tool.Name, "Hoa Đỏ") then
+			if kg < 3 then
+				basePrice = math.floor(450 + (kg * 830))
+			else
+				basePrice = math.floor(3050 + ((kg - 3) * 1150))
+			end
+		elseif string.find(tool.Name, "Táo") then
+			if kg < 4 then
+				basePrice = math.floor(200 + (kg * 195))
+			else
+				basePrice = math.floor(1050 + ((kg - 4) * 320))
+			end
+		else
+			if kg >= 10 then
+				basePrice = math.floor(700 + ((kg - 10) * 60))
+			else
+				basePrice = math.floor(40 + (kg * 59))
+			end
+		end
+	end
+
+	local finalPrice = isDoubleMoneyActive() and (basePrice * 2) or basePrice
+	return finalPrice, basePrice
+end
+
+btnAll.MouseButton1Click:Connect(function()
+	local totalFinalMoney = 0
+	local count = 0
+	local bp = player:FindFirstChild("Backpack") or backpack
+
+	for _, item in ipairs(bp:GetChildren()) do
+		if isHarvestedCropTool(item) then
+			local finalPrice = getCropPrices(item)
+			totalFinalMoney = totalFinalMoney + finalPrice
+			count = count + 1
+			item:Destroy()
+		end
+	end
+
+	local char = player.Character
+	local heldItem = char and char:FindFirstChildOfClass("Tool")
+	if heldItem and isHarvestedCropTool(heldItem) then
+		local finalPrice = getCropPrices(heldItem)
+		totalFinalMoney = totalFinalMoney + finalPrice
+		count = count + 1
+		heldItem:Destroy()
+	end
+
+	if count > 0 then
+		moneyStat.Value = moneyStat.Value + totalFinalMoney
+		local suffix = isDoubleMoneyActive() and " (Giá x2)" or ""
+		showNotification(string.format("bacon: Tổng bán được %d $ từ %d món!%s", totalFinalMoney, count, suffix), false)
+	else
+		showNotification("bacon: Chẳng có nông sản nào ở đây cả", true)
+	end
+	if invFrame.Visible then refreshInventoryList() end
+end)
+
+btnOne.MouseButton1Click:Connect(function()
+	local char = player.Character
+	local heldItem = char and char:FindFirstChildOfClass("Tool")
+
+	if heldItem and isHarvestedCropTool(heldItem) then
+		local finalPrice = getCropPrices(heldItem)
+		moneyStat.Value = moneyStat.Value + finalPrice
+		heldItem:Destroy()
+		local suffix = isDoubleMoneyActive() and " (Giá x2)" or ""
+		showNotification(string.format("bacon: Tổng bán được %d $ từ 1 món!%s", finalPrice, suffix), false)
+	else
+		showNotification("bacon: Chẳng có nông sản nào ở đây cả", true)
+	end
+	if invFrame.Visible then refreshInventoryList() end
+end)
+
+btnPrice.MouseButton1Click:Connect(function()
+	local char = player.Character
+	local heldItem = char and char:FindFirstChildOfClass("Tool")
+
+	if heldItem and isHarvestedCropTool(heldItem) then
+		local finalPrice, basePrice = getCropPrices(heldItem)
+		if isDoubleMoneyActive() then
+			showNotification(string.format("Giá gốc: %d $ | Giá x2: %d $", basePrice, finalPrice), false)
+		else
+			showNotification(string.format("bacon: Giá thu mua món này là %d $!", basePrice), false)
+		end
+		return
+	end
+
+	local totalBaseMoney = 0
+	local totalFinalMoney = 0
+	local count = 0
+	local bp = player:FindFirstChild("Backpack") or backpack
+	for _, item in ipairs(bp:GetChildren()) do
+		if isHarvestedCropTool(item) then
+			local finalPrice, basePrice = getCropPrices(item)
+			totalBaseMoney = totalBaseMoney + basePrice
+			totalFinalMoney = totalFinalMoney + finalPrice
+			count = count + 1
+		end
+	end
+
+	if count > 0 then
+		if isDoubleMoneyActive() then
+			showNotification(string.format("Giá gốc: %d $ | Giá x2: %d $ (%d món)", totalBaseMoney, totalFinalMoney, count), false)
+		else
+			showNotification(string.format("bacon: Giá thu mua %d món trong balo là %d $!", count, totalBaseMoney), false)
+		end
+	else
+		showNotification("bacon: Chẳng có nông sản nào ở đây cả", true)
+	end
+end)
+
+RunService.RenderStepped:Connect(function()
+	local char = player.Character
+	local hrp = char and char:FindFirstChild("HumanoidRootPart")
+	if hrp and baconTorso then
+		local dist = (hrp.Position - baconTorso.Position).Magnitude
+		baconScroll.Visible = (dist <= 5)
+	end
+end)
+
+-- 11. Tạo Tool thu hoạch (Carrot, Hoa Đỏ, Trái Táo, Cây Tre)
+local function createHarvestedCarrotTool(weightKG, scaleMultiplier, rewardMoney)
+	local tool = Instance.new("Tool")
+	tool.Name = string.format("Carrot [%.2fkg]", weightKG)
+	tool:SetAttribute("IsHarvestedCrop", true)
+	tool:SetAttribute("SellPrice", rewardMoney)
+
+	local bodySize = Vector3.new(1.2, 2.2, 1.2) * scaleMultiplier
+	local leafSize = Vector3.new(0.8, 1.0, 0.8) * scaleMultiplier
+
+	local handle = Instance.new("Part")
+	handle.Name = "Handle"
+	handle.Size = bodySize
+	handle.Color = Color3.fromRGB(255, 120, 0)
+	handle.Material = Enum.Material.SmoothPlastic
+	handle.Parent = tool
+
+	local leaf = Instance.new("Part")
+	leaf.Name = "Leaf"
+	leaf.Size = leafSize
+	leaf.CFrame = handle.CFrame * CFrame.new(0, (bodySize.Y / 2) + (leafSize.Y / 2) - 0.1, 0)
+	leaf.Color = Color3.fromRGB(40, 200, 60)
+	leaf.Material = Enum.Material.Grass
+	leaf.Parent = tool
+
+	local weld = Instance.new("WeldConstraint")
+	weld.Part0 = handle
+	weld.Part1 = leaf
+	weld.Parent = handle
+
+	local bg = Instance.new("BillboardGui")
+	bg.Size = UDim2.new(0, 130, 0, 35)
+	bg.StudsOffset = Vector3.new(0, -(bodySize.Y / 2) - 0.8, 0)
+	bg.AlwaysOnTop = true
+	bg.Parent = handle
+
+	local lbl = Instance.new("TextLabel")
+	lbl.Size = UDim2.new(1, 0, 1, 0)
+	lbl.BackgroundTransparency = 1
+	lbl.Text = string.format("%.2f kg", weightKG)
+	lbl.TextColor3 = Color3.fromRGB(255, 255, 255)
+	lbl.TextStrokeTransparency = 0
+	lbl.Font = Enum.Font.GothamBold
+	lbl.TextScaled = true
+	lbl.Parent = bg
+
+	return tool
+end
+
+local function createHarvestedFlowerTool(weightKG, scaleMultiplier, rewardMoney)
+	local tool = Instance.new("Tool")
+	tool.Name = string.format("Hoa Đỏ [%.2fkg]", weightKG)
+	tool:SetAttribute("IsHarvestedCrop", true)
+	tool:SetAttribute("SellPrice", rewardMoney)
+
+	local stemSize = Vector3.new(0.45, 2.0, 0.45) * scaleMultiplier
+	local blossomSize = Vector3.new(1.8, 1.1, 1.8) * scaleMultiplier
+
+	local handle = Instance.new("Part")
+	handle.Name = "Handle"
+	handle.Size = stemSize
+	handle.Color = Color3.fromRGB(40, 185, 65)
+	handle.Material = Enum.Material.Grass
+	handle.Parent = tool
+
+	local blossom = Instance.new("Part")
+	blossom.Name = "Blossom"
+	blossom.Shape = Enum.PartType.Cylinder
+	blossom.Size = Vector3.new(blossomSize.Y, blossomSize.X, blossomSize.Z)
+	blossom.CFrame = handle.CFrame * CFrame.new(0, (stemSize.Y / 2) + (blossomSize.Y / 2) - 0.05, 0) * CFrame.Angles(0, 0, math.rad(90))
+	blossom.Color = Color3.fromRGB(220, 30, 40)
+	blossom.Material = Enum.Material.SmoothPlastic
+	blossom.Parent = tool
+
+	local pistil = Instance.new("Part")
+	pistil.Name = "Pistil"
+	pistil.Shape = Enum.PartType.Ball
+	pistil.Size = Vector3.new(0.65, 0.65, 0.65) * scaleMultiplier
+	pistil.CFrame = handle.CFrame * CFrame.new(0, (stemSize.Y / 2) + blossomSize.Y - 0.05, 0)
+	pistil.Color = Color3.fromRGB(255, 215, 0)
+	pistil.Material = Enum.Material.SmoothPlastic
+	pistil.Parent = tool
+
+	local w1 = Instance.new("WeldConstraint")
+	w1.Part0 = handle
+	w1.Part1 = blossom
+	w1.Parent = handle
+
+	local w2 = Instance.new("WeldConstraint")
+	w2.Part0 = handle
+	w2.Part1 = pistil
+	w2.Parent = handle
+
+	local bg = Instance.new("BillboardGui")
+	bg.Size = UDim2.new(0, 130, 0, 35)
+	bg.StudsOffset = Vector3.new(0, -(stemSize.Y / 2) - 0.8, 0)
+	bg.AlwaysOnTop = true
+	bg.Parent = handle
+
+	local lbl = Instance.new("TextLabel")
+	lbl.Size = UDim2.new(1, 0, 1, 0)
+	lbl.BackgroundTransparency = 1
+	lbl.Text = string.format("%.2f kg", weightKG)
+	lbl.TextColor3 = Color3.fromRGB(255, 255, 255)
+	lbl.TextStrokeTransparency = 0
+	lbl.Font = Enum.Font.GothamBold
+	lbl.TextScaled = true
+	lbl.Parent = bg
+
+	return tool
+end
+
+local function createHarvestedAppleTool(weightKG, appleScale, rewardMoney)
+	local tool = Instance.new("Tool")
+	tool.Name = string.format("Táo [%.2fkg]", weightKG)
+	tool:SetAttribute("IsHarvestedCrop", true)
+	tool:SetAttribute("SellPrice", rewardMoney)
+
+	local bodyRadius = 1.15 * appleScale
+
+	local handle = Instance.new("Part")
+	handle.Name = "Handle"
+	handle.Shape = Enum.PartType.Ball
+	handle.Size = Vector3.new(bodyRadius, bodyRadius, bodyRadius)
+	handle.Color = Color3.fromRGB(230, 35, 45)
+	handle.Material = Enum.Material.SmoothPlastic
+	handle.Parent = tool
+
+	local stem = Instance.new("Part")
+	stem.Name = "Stem"
+	stem.Size = Vector3.new(0.18, 0.45, 0.18) * appleScale
+	stem.CFrame = handle.CFrame * CFrame.new(0, (bodyRadius / 2) + (0.2 * appleScale), 0)
+	stem.Color = Color3.fromRGB(110, 65, 30)
+	stem.Material = Enum.Material.Wood
+	stem.Parent = tool
+
+	local leaf = Instance.new("Part")
+	leaf.Name = "Leaf"
+	leaf.Size = Vector3.new(0.45, 0.15, 0.25) * appleScale
+	leaf.CFrame = handle.CFrame * CFrame.new(0.22 * appleScale, (bodyRadius / 2) + (0.25 * appleScale), 0) * CFrame.Angles(0, 0, math.rad(20))
+	leaf.Color = Color3.fromRGB(45, 195, 65)
+	leaf.Material = Enum.Material.Grass
+	leaf.Parent = tool
+
+	local w1 = Instance.new("WeldConstraint")
+	w1.Part0 = handle
+	w1.Part1 = stem
+	w1.Parent = handle
+
+	local w2 = Instance.new("WeldConstraint")
+	w2.Part0 = handle
+	w2.Part1 = leaf
+	w2.Parent = handle
+
+	local bg = Instance.new("BillboardGui")
+	bg.Size = UDim2.new(0, 130, 0, 35)
+	bg.StudsOffset = Vector3.new(0, -(bodyRadius / 2) - 0.8, 0)
+	bg.AlwaysOnTop = true
+	bg.Parent = handle
+
+	local lbl = Instance.new("TextLabel")
+	lbl.Size = UDim2.new(1, 0, 1, 0)
+	lbl.BackgroundTransparency = 1
+	lbl.Text = string.format("%.2f kg", weightKG)
+	lbl.TextColor3 = Color3.fromRGB(255, 255, 255)
+	lbl.TextStrokeTransparency = 0
+	lbl.Font = Enum.Font.GothamBold
+	lbl.TextScaled = true
+	lbl.Parent = bg
+
+	return tool
+end
+
+local function createHarvestedBambooTool(weightKG, thicknessScale, rewardMoney)
+	local tool = Instance.new("Tool")
+	tool.Name = string.format("Cây Tre [%.2fkg]", weightKG)
+	tool:SetAttribute("IsHarvestedCrop", true)
+	tool:SetAttribute("SellPrice", rewardMoney)
+
+	local stalkLen = math.clamp(3.6 + (weightKG * 0.28), 3.8, 9.5)
+	local stalkThick = 0.42 * thicknessScale
+
+	local handle = Instance.new("Part")
+	handle.Name = "Handle"
+	handle.Shape = Enum.PartType.Cylinder
+	handle.Size = Vector3.new(stalkLen, stalkThick, stalkThick)
+	handle.CFrame = CFrame.new(0, 0, 0) * CFrame.Angles(0, 0, math.rad(90))
+	handle.Color = Color3.fromRGB(70, 185, 55)
+	handle.Material = Enum.Material.SmoothPlastic
+	handle.Parent = tool
+
+	-- Đốt tre và lá tre gắn theo thân
+	local nodeCount = 3
+	for n = 1, nodeCount do
+		local frac = (n / (nodeCount + 1)) - 0.5
+		local nodeRing = Instance.new("Part")
+		nodeRing.Name = "Node_" .. n
+		nodeRing.Shape = Enum.PartType.Cylinder
+		nodeRing.Size = Vector3.new(0.16, stalkThick * 1.18, stalkThick * 1.18)
+		nodeRing.CFrame = handle.CFrame * CFrame.new(frac * stalkLen, 0, 0)
+		nodeRing.Color = Color3.fromRGB(45, 130, 35)
+		nodeRing.Material = Enum.Material.SmoothPlastic
+		nodeRing.Parent = tool
+
+		local w = Instance.new("WeldConstraint")
+		w.Part0 = handle
+		w.Part1 = nodeRing
+		w.Parent = handle
+	end
+
+	local leaf = Instance.new("Part")
+	leaf.Name = "BambooLeaf"
+	leaf.Size = Vector3.new(1.1 * thicknessScale, 0.12, 0.45 * thicknessScale)
+	leaf.CFrame = handle.CFrame * CFrame.new((stalkLen / 2) - 0.3, stalkThick * 0.65, 0) * CFrame.Angles(0, 0, math.rad(25))
+	leaf.Color = Color3.fromRGB(50, 205, 65)
+	leaf.Material = Enum.Material.Grass
+	leaf.Parent = tool
+
+	local wLeaf = Instance.new("WeldConstraint")
+	wLeaf.Part0 = handle
+	wLeaf.Part1 = leaf
+	wLeaf.Parent = handle
+
+	local bg = Instance.new("BillboardGui")
+	bg.Size = UDim2.new(0, 140, 0, 35)
+	bg.StudsOffset = Vector3.new(0, -(stalkLen / 2) - 0.8, 0)
+	bg.AlwaysOnTop = true
+	bg.Parent = handle
+
+	local lbl = Instance.new("TextLabel")
+	lbl.Size = UDim2.new(1, 0, 1, 0)
+	lbl.BackgroundTransparency = 1
+	lbl.Text = string.format("%.2f kg", weightKG)
+	lbl.TextColor3 = Color3.fromRGB(255, 255, 255)
+	lbl.TextStrokeTransparency = 0
+	lbl.Font = Enum.Font.GothamBold
+	lbl.TextScaled = true
+	lbl.Parent = bg
+
+	return tool
+end
+
+-- Hàm mọc cây Carrot (10s)
+local function growCarrotPlant(plantPos, plotPart)
+	local weightKG, rewardMoney
+	if math.random(1, 100) <= 4 then
+		weightKG = math.random(1010, 1800) / 100
+		rewardMoney = math.random(700, 1200)
+	else
+		weightKG = math.random(30, 995) / 100
+		rewardMoney = math.floor(40 + (weightKG * 59))
+	end
+
+	local scale = math.clamp(0.7 + (weightKG * 0.16), 0.75, 3.8)
+	local finalBodySize = Vector3.new(1.2, 2.2, 1.2) * scale
+	local finalLeafSize = Vector3.new(0.8, 1.0, 0.8) * scale
+	local startBodySize = Vector3.new(0.25, 0.35, 0.25)
+	local startLeafSize = Vector3.new(0.2, 0.25, 0.2)
+	local surfaceY = plotPart.Position.Y + (plotPart.Size.Y / 2)
+
+	local plantModel = Instance.new("Model")
+	plantModel.Name = "GrowingCrop"
+	plantModel:SetAttribute("CropKind", "Carrot")
+	plantModel:SetAttribute("WeightKG", weightKG)
+	plantModel:SetAttribute("Scale", scale)
+	plantModel:SetAttribute("RewardMoney", rewardMoney)
+	plantModel.Parent = mapFolder
+
+	local body = Instance.new("Part")
+	body.Name = "Body"
+	body.Size = startBodySize
+	body.Position = Vector3.new(plantPos.X, surfaceY + (startBodySize.Y / 2) - 0.1, plantPos.Z)
+	body.Anchored = true
+	body.CanCollide = false
+	body.Color = Color3.fromRGB(255, 120, 0)
+	body.Material = Enum.Material.SmoothPlastic
+	body.Parent = plantModel
+
+	local leaf = Instance.new("Part")
+	leaf.Name = "Leaf"
+	leaf.Size = startLeafSize
+	leaf.Position = Vector3.new(plantPos.X, surfaceY + startBodySize.Y + (startLeafSize.Y / 2) - 0.15, plantPos.Z)
+	leaf.Anchored = true
+	leaf.CanCollide = false
+	leaf.Color = Color3.fromRGB(40, 200, 60)
+	leaf.Material = Enum.Material.Grass
+	leaf.Parent = plantModel
+
+	local growInfo = TweenInfo.new(10, Enum.EasingStyle.Sine, Enum.EasingDirection.Out)
+	TweenService:Create(body, growInfo, {
+		Size = finalBodySize,
+		Position = Vector3.new(plantPos.X, surfaceY + (finalBodySize.Y / 2) - 0.15, plantPos.Z)
+	}):Play()
+	TweenService:Create(leaf, growInfo, {
+		Size = finalLeafSize,
+		Position = Vector3.new(plantPos.X, surfaceY + finalBodySize.Y + (finalLeafSize.Y / 2) - 0.2, plantPos.Z)
+	}):Play()
+
+	task.delay(10, function()
+		if not plantModel or not plantModel.Parent then return end
+		plantModel:SetAttribute("ReadyToHarvest", true)
+
+		local harvestPrompt = Instance.new("ProximityPrompt")
+		harvestPrompt.ObjectText = string.format("Carrot (%.2fkg)", weightKG)
+		harvestPrompt.ActionText = "Thu hoạch"
+		harvestPrompt.HoldDuration = 0
+		harvestPrompt.MaxActivationDistance = 12
+		harvestPrompt.RequiresLineOfSight = false
+		harvestPrompt.Parent = body
+
+		local harvested = false
+		harvestPrompt.Triggered:Connect(function(plr)
+			if plr == player and not harvested then
+				harvested = true
+				plantModel:Destroy()
+				local bp = player:FindFirstChild("Backpack") or backpack
+				local carrotTool = createHarvestedCarrotTool(weightKG, scale, rewardMoney)
+				carrotTool.Parent = bp
+				showNotification(string.format("Thu hoạch: Carrot %.2fkg", weightKG), false)
+				if invFrame.Visible then refreshInventoryList() end
+			end
+		end)
+	end)
+end
+
+-- Hàm mọc Bông Hoa Đỏ (8s)
+local function growRedFlowerPlant(plantPos, plotPart)
+	local weightKG, rewardMoney
+	if math.random(1, 100) <= 22 then
+		weightKG = math.random(305, 650) / 100
+		rewardMoney = math.floor(3050 + ((weightKG - 3) * 1150))
+	else
+		weightKG = math.random(30, 298) / 100
+		rewardMoney = math.floor(450 + (weightKG * 830))
+	end
+
+	local scale = math.clamp(0.75 + (weightKG * 0.35), 0.85, 3.2)
+	local finalStemSize = Vector3.new(0.42, 1.9, 0.42) * scale
+	local finalFlowerSize = Vector3.new(0.75, 2.1, 2.1) * scale
+	local finalPistilSize = Vector3.new(0.65, 0.65, 0.65) * scale
+
+	local startStemSize = Vector3.new(0.15, 0.3, 0.15)
+	local startFlowerSize = Vector3.new(0.15, 0.35, 0.35)
+	local startPistilSize = Vector3.new(0.12, 0.12, 0.12)
+
+	local surfaceY = plotPart.Position.Y + (plotPart.Size.Y / 2)
+
+	local plantModel = Instance.new("Model")
+	plantModel.Name = "GrowingCrop"
+	plantModel:SetAttribute("CropKind", "RedFlower")
+	plantModel:SetAttribute("WeightKG", weightKG)
+	plantModel:SetAttribute("Scale", scale)
+	plantModel:SetAttribute("RewardMoney", rewardMoney)
+	plantModel.Parent = mapFolder
+
+	local body = Instance.new("Part")
+	body.Name = "Body"
+	body.Size = startStemSize
+	body.Position = Vector3.new(plantPos.X, surfaceY + (startStemSize.Y / 2) - 0.05, plantPos.Z)
+	body.Anchored = true
+	body.CanCollide = false
+	body.Color = Color3.fromRGB(40, 185, 65)
+	body.Material = Enum.Material.Grass
+	body.Parent = plantModel
+
+	local blossom = Instance.new("Part")
+	blossom.Name = "Blossom"
+	blossom.Shape = Enum.PartType.Cylinder
+	blossom.Size = startFlowerSize
+	blossom.CFrame = CFrame.new(plantPos.X, surfaceY + startStemSize.Y + (startFlowerSize.X / 2) - 0.05, plantPos.Z) * CFrame.Angles(0, 0, math.rad(90))
+	blossom.Anchored = true
+	blossom.CanCollide = false
+	blossom.Color = Color3.fromRGB(220, 30, 40)
+	blossom.Material = Enum.Material.SmoothPlastic
+	blossom.Parent = plantModel
+
+	local pistil = Instance.new("Part")
+	pistil.Name = "Pistil"
+	pistil.Shape = Enum.PartType.Ball
+	pistil.Size = startPistilSize
+	pistil.Position = Vector3.new(plantPos.X, surfaceY + startStemSize.Y + startFlowerSize.X - 0.05, plantPos.Z)
+	pistil.Anchored = true
+	pistil.CanCollide = false
+	pistil.Color = Color3.fromRGB(255, 215, 0)
+	pistil.Material = Enum.Material.SmoothPlastic
+	pistil.Parent = plantModel
+
+	local growInfo = TweenInfo.new(8, Enum.EasingStyle.Sine, Enum.EasingDirection.Out)
+	TweenService:Create(body, growInfo, {
+		Size = finalStemSize,
+		Position = Vector3.new(plantPos.X, surfaceY + (finalStemSize.Y / 2) - 0.05, plantPos.Z)
+	}):Play()
+	TweenService:Create(blossom, growInfo, {
+		Size = finalFlowerSize,
+		CFrame = CFrame.new(plantPos.X, surfaceY + finalStemSize.Y + (finalFlowerSize.X / 2) - 0.08, plantPos.Z) * CFrame.Angles(0, 0, math.rad(90))
+	}):Play()
+	TweenService:Create(pistil, growInfo, {
+		Size = finalPistilSize,
+		Position = Vector3.new(plantPos.X, surfaceY + finalStemSize.Y + finalFlowerSize.X - 0.08, plantPos.Z)
+	}):Play()
+
+	task.delay(8, function()
+		if not plantModel or not plantModel.Parent then return end
+		plantModel:SetAttribute("ReadyToHarvest", true)
+
+		local harvestPrompt = Instance.new("ProximityPrompt")
+		harvestPrompt.ObjectText = string.format("Hoa Đỏ (%.2fkg)", weightKG)
+		harvestPrompt.ActionText = "Thu hoạch"
+		harvestPrompt.HoldDuration = 0
+		harvestPrompt.MaxActivationDistance = 12
+		harvestPrompt.RequiresLineOfSight = false
+		harvestPrompt.Parent = blossom
+
+		local harvested = false
+		harvestPrompt.Triggered:Connect(function(plr)
+			if plr == player and not harvested then
+				harvested = true
+				plantModel:Destroy()
+				local bp = player:FindFirstChild("Backpack") or backpack
+				local flowerTool = createHarvestedFlowerTool(weightKG, scale, rewardMoney)
+				flowerTool.Parent = bp
+				showNotification(string.format("Thu hoạch: Hoa Đỏ %.2fkg", weightKG), false)
+				if invFrame.Visible then refreshInventoryList() end
+			end
+		end)
+	end)
+end
+
+-- Hàm mọc Cây Tre (30s): dài ít nhất 4m, vừa to vừa dài theo kg, dưới 10kg < 100k$, trên 10kg > 100k$
+local function growBambooPlant(plantPos, plotPart)
+	local weightKG, rewardMoney
+	if math.random(1, 100) <= 32 then
+		-- Trên 10kg -> trên 100,000 $ (càng nhiều gam/kg càng nhiều tiền)
+		weightKG = math.random(1005, 2200) / 100
+		rewardMoney = math.floor(100500 + ((weightKG - 10) * 10500))
+	else
+		-- Dưới 10kg -> dưới 100,000 $ (càng nhiều gam/kg càng nhiều tiền)
+		weightKG = math.random(120, 995) / 100
+		rewardMoney = math.floor(15000 + (weightKG * 8400))
+	end
+
+	-- Dài ít nhất 4m (1m ~ 3.5 studs -> ít nhất 14 studs), dài và to tỷ lệ thuận với kg
+	local heightMeters = 4.0 + (weightKG * 0.48) -- ~4.5m đến ~14.5m
+	local finalHeightStuds = heightMeters * 3.5
+	local thicknessScale = math.clamp(0.85 + (weightKG * 0.14), 0.95, 4.0)
+	local finalDiameter = 0.85 * thicknessScale
+
+	local surfaceY = plotPart.Position.Y + (plotPart.Size.Y / 2)
+
+	local plantModel = Instance.new("Model")
+	plantModel.Name = "GrowingCrop"
+	plantModel:SetAttribute("CropKind", "Bamboo")
+	plantModel:SetAttribute("WeightKG", weightKG)
+	plantModel:SetAttribute("Scale", thicknessScale)
+	plantModel:SetAttribute("RewardMoney", rewardMoney)
+	plantModel.Parent = mapFolder
+
+	-- Thân tre chính (Cylinder xoay dọc)
+	local body = Instance.new("Part")
+	body.Name = "Body"
+	body.Shape = Enum.PartType.Cylinder
+	body.Size = Vector3.new(0.8, 0.25, 0.25)
+	body.CFrame = CFrame.new(plantPos.X, surfaceY + 0.4, plantPos.Z) * CFrame.Angles(0, 0, math.rad(90))
+	body.Anchored = true
+	body.CanCollide = false
+	body.Color = Color3.fromRGB(70, 185, 55)
+	body.Material = Enum.Material.SmoothPlastic
+	body.Parent = plantModel
+
+	local growDuration = 30
+	local growInfo = TweenInfo.new(growDuration, Enum.EasingStyle.Sine, Enum.EasingDirection.Out)
+
+	TweenService:Create(body, growInfo, {
+		Size = Vector3.new(finalHeightStuds, finalDiameter, finalDiameter),
+		CFrame = CFrame.new(plantPos.X, surfaceY + (finalHeightStuds / 2), plantPos.Z) * CFrame.Angles(0, 0, math.rad(90))
+	}):Play()
+
+	-- Các đốt tre (5 đốt dọc thân cây) mọc lớn cùng thân
+	local nodeCount = 5
+	for n = 1, nodeCount do
+		local ratio = n / (nodeCount + 1)
+		local nodeRing = Instance.new("Part")
+		nodeRing.Name = "BambooNode_" .. n
+		nodeRing.Shape = Enum.PartType.Cylinder
+		nodeRing.Size = Vector3.new(0.1, 0.3, 0.3)
+		nodeRing.CFrame = CFrame.new(plantPos.X, surfaceY + (0.8 * ratio), plantPos.Z) * CFrame.Angles(0, 0, math.rad(90))
+		nodeRing.Anchored = true
+		nodeRing.CanCollide = false
+		nodeRing.Color = Color3.fromRGB(45, 130, 35)
+		nodeRing.Material = Enum.Material.SmoothPlastic
+		nodeRing.Parent = plantModel
+
+		local targetRingThick = finalDiameter * 1.16
+		local targetRingHeight = math.clamp(0.24 * thicknessScale, 0.22, 0.65)
+		TweenService:Create(nodeRing, growInfo, {
+			Size = Vector3.new(targetRingHeight, targetRingThick, targetRingThick),
+			CFrame = CFrame.new(plantPos.X, surfaceY + (finalHeightStuds * ratio), plantPos.Z) * CFrame.Angles(0, 0, math.rad(90))
+		}):Play()
+	end
+
+	-- Tán lá tre ở các đốt trên
+	for l = 1, 3 do
+		local leafRatio = 0.72 + (l * 0.08)
+		local sideSign = (l % 2 == 0) and 1 or -1
+		local leaf = Instance.new("Part")
+		leaf.Name = "BambooLeaf_" .. l
+		leaf.Size = Vector3.new(0.3, 0.08, 0.15)
+		leaf.CFrame = CFrame.new(plantPos.X, surfaceY + 0.6, plantPos.Z)
+		leaf.Anchored = true
+		leaf.CanCollide = false
+		leaf.Color = Color3.fromRGB(50, 205, 65)
+		leaf.Material = Enum.Material.Grass
+		leaf.Parent = plantModel
+
+		local finalLeafSize = Vector3.new(2.2 * thicknessScale, 0.14, 0.75 * thicknessScale)
+		local leafOffsetX = sideSign * ((finalDiameter / 2) + (finalLeafSize.X * 0.42))
+		TweenService:Create(leaf, growInfo, {
+			Size = finalLeafSize,
+			CFrame = CFrame.new(plantPos.X + leafOffsetX, surfaceY + (finalHeightStuds * leafRatio), plantPos.Z) * CFrame.Angles(0, 0, math.rad(sideSign * 18))
+		}):Play()
+	end
+
+	task.delay(growDuration, function()
+		if not plantModel or not plantModel.Parent then return end
+		plantModel:SetAttribute("ReadyToHarvest", true)
+
+		local harvestPrompt = Instance.new("ProximityPrompt")
+		harvestPrompt.ObjectText = string.format("Cây Tre (%.2fkg - %.1fm)", weightKG, heightMeters)
+		harvestPrompt.ActionText = "Thu hoạch"
+		harvestPrompt.HoldDuration = 0
+		harvestPrompt.MaxActivationDistance = 15
+		harvestPrompt.RequiresLineOfSight = false
+		harvestPrompt.Parent = body
+
+		local harvested = false
+		harvestPrompt.Triggered:Connect(function(plr)
+			if plr == player and not harvested then
+				harvested = true
+				plantModel:Destroy()
+				local bp = player:FindFirstChild("Backpack") or backpack
+				local bambooTool = createHarvestedBambooTool(weightKG, thicknessScale, rewardMoney)
+				bambooTool.Parent = bp
+				showNotification(string.format("Thu hoạch: Cây Tre %.2fkg (dài %.1fm)", weightKG, heightMeters), false)
+				if invFrame.Visible then refreshInventoryList() end
+			end
+		end)
+	end)
+end
+
+-- Hàm mọc Cây Táo: 81s lớn cây, mỗi 90s mọc trái trên cây
+local function growAppleTree(plantPos, plotPart)
+	local treeWeightKG
+	if math.random(1, 100) <= 30 then
+		treeWeightKG = math.random(2010, 3200) / 100
+	else
+		treeWeightKG = math.random(600, 1990) / 100
+	end
+
+	local treeHeightMeters = math.clamp(4 + ((treeWeightKG - 6) * 0.65), 4, 21)
+	local totalHeightStuds = treeHeightMeters * 3.5
+
+	local trunkHeight = totalHeightStuds * 0.65
+	local trunkWidth = math.clamp(1.2 + (treeWeightKG * 0.11), 1.4, 5.2)
+	local canopySize = Vector3.new(totalHeightStuds * 0.62, totalHeightStuds * 0.45, totalHeightStuds * 0.62)
+
+	local surfaceY = plotPart.Position.Y + (plotPart.Size.Y / 2)
+
+	local treeModel = Instance.new("Model")
+	treeModel.Name = "GrowingCrop"
+	treeModel:SetAttribute("CropKind", "AppleTree")
+	treeModel.Parent = mapFolder
+
+	local trunk = Instance.new("Part")
+	trunk.Name = "Body"
+	trunk.Size = Vector3.new(0.4, 1.0, 0.4)
+	trunk.Position = Vector3.new(plantPos.X, surfaceY + 0.5, plantPos.Z)
+	trunk.Anchored = true
+	trunk.CanCollide = true
+	trunk.Color = Color3.fromRGB(105, 65, 35)
+	trunk.Material = Enum.Material.Wood
+	trunk.Parent = treeModel
+
+	local canopy = Instance.new("Part")
+	canopy.Name = "Canopy"
+	canopy.Shape = Enum.PartType.Ball
+	canopy.Size = Vector3.new(1.2, 1.2, 1.2)
+	canopy.Position = Vector3.new(plantPos.X, surfaceY + 1.2, plantPos.Z)
+	canopy.Anchored = true
+	canopy.CanCollide = false
+	canopy.Color = Color3.fromRGB(45, 165, 55)
+	canopy.Material = Enum.Material.Grass
+	canopy.Parent = treeModel
+
+	local canopyTop = Instance.new("Part")
+	canopyTop.Name = "CanopyTop"
+	canopyTop.Shape = Enum.PartType.Ball
+	canopyTop.Size = Vector3.new(0.9, 0.9, 0.9)
+	canopyTop.Position = Vector3.new(plantPos.X, surfaceY + 1.5, plantPos.Z)
+	canopyTop.Anchored = true
+	canopyTop.CanCollide = false
+	canopyTop.Color = Color3.fromRGB(55, 185, 65)
+	canopyTop.Material = Enum.Material.Grass
+	canopyTop.Parent = treeModel
+
+	local finalTrunkPos = Vector3.new(plantPos.X, surfaceY + (trunkHeight / 2), plantPos.Z)
+	local finalCanopyPos = Vector3.new(plantPos.X, surfaceY + trunkHeight + (canopySize.Y * 0.25), plantPos.Z)
+	local finalCanopyTopSize = canopySize * 0.72
+	local finalCanopyTopPos = finalCanopyPos + Vector3.new(0, canopySize.Y * 0.34, 0)
+
+	local growDuration = 81
+	local growInfo = TweenInfo.new(growDuration, Enum.EasingStyle.Sine, Enum.EasingDirection.Out)
+
+	TweenService:Create(trunk, growInfo, {
+		Size = Vector3.new(trunkWidth, trunkHeight, trunkWidth),
+		Position = finalTrunkPos
+	}):Play()
+
+	TweenService:Create(canopy, growInfo, {
+		Size = canopySize,
+		Position = finalCanopyPos
+	}):Play()
+
+	TweenService:Create(canopyTop, growInfo, {
+		Size = finalCanopyTopSize,
+		Position = finalCanopyTopPos
+	}):Play()
+
+	local fruitsFolder = Instance.new("Folder")
+	fruitsFolder.Name = "AppleFruits"
+	fruitsFolder.Parent = treeModel
+
+	local function spawnAppleBatch()
+		if not treeModel or not treeModel.Parent then return end
+
+		local targetCount
+		if treeWeightKG >= 20 then
+			targetCount = math.random(8, 16)
+		else
+			targetCount = math.random(5, 8)
+		end
+
+		local currentFruits = #fruitsFolder:GetChildren()
+		local toSpawn = math.max(0, targetCount - currentFruits)
+		if toSpawn == 0 then return end
+
+		local rx = canopySize.X * 0.38
+		local ry = canopySize.Y * 0.32
+		local rz = canopySize.Z * 0.38
+
+		for i = 1, toSpawn do
+			local appleWeightKG, appleReward
+			if math.random(1, 100) <= 28 then
+				appleWeightKG = math.random(405, 780) / 100
+				appleReward = math.floor(1050 + ((appleWeightKG - 4) * 320))
+			else
+				appleWeightKG = math.random(40, 395) / 100
+				appleReward = math.floor(200 + (appleWeightKG * 195))
+			end
+
+			local appleScale = math.clamp(0.75 + (appleWeightKG * 0.28), 0.85, 2.9)
+			local appleRadius = 1.15 * appleScale
+
+			local angle = (i / toSpawn) * math.pi * 2 + (math.random() * 0.8)
+			local distFactor = 0.55 + (math.random() * 0.4)
+			local offsetX = math.cos(angle) * rx * distFactor
+			local offsetZ = math.sin(angle) * rz * distFactor
+			local offsetY = -ry * (0.2 + math.random() * 0.65)
+
+			local applePart = Instance.new("Part")
+			applePart.Name = "AppleFruit"
+			applePart.Shape = Enum.PartType.Ball
+			applePart.Size = Vector3.new(0.2, 0.2, 0.2)
+			applePart.Position = finalCanopyPos + Vector3.new(offsetX, offsetY, offsetZ)
+			applePart.Anchored = true
+			applePart.CanCollide = false
+			applePart.Color = Color3.fromRGB(230, 35, 45)
+			applePart.Material = Enum.Material.SmoothPlastic
+			applePart:SetAttribute("WeightKG", appleWeightKG)
+			applePart:SetAttribute("Scale", appleScale)
+			applePart:SetAttribute("RewardMoney", appleReward)
+			applePart.Parent = fruitsFolder
+
+			TweenService:Create(applePart, TweenInfo.new(1.5, Enum.EasingStyle.Back, Enum.EasingDirection.Out), {
+				Size = Vector3.new(appleRadius, appleRadius, appleRadius)
+			}):Play()
+
+			local prompt = Instance.new("ProximityPrompt")
+			prompt.ObjectText = string.format("Trái Táo (%.2fkg)", appleWeightKG)
+			prompt.ActionText = "Hái táo"
+			prompt.HoldDuration = 0
+			prompt.MaxActivationDistance = 16
+			prompt.RequiresLineOfSight = false
+			prompt.Parent = applePart
+
+			local picked = false
+			prompt.Triggered:Connect(function(plr)
+				if plr == player and not picked then
+					picked = true
+					applePart:Destroy()
+					local bp = player:FindFirstChild("Backpack") or backpack
+					local appleTool = createHarvestedAppleTool(appleWeightKG, appleScale, appleReward)
+					appleTool.Parent = bp
+					showNotification(string.format("Đã hái: Táo %.2fkg", appleWeightKG), false)
+					if invFrame.Visible then refreshInventoryList() end
+				end
+			end)
+		end
+	end
+
+	task.spawn(function()
+		task.wait(growDuration)
+		if not treeModel or not treeModel.Parent then return end
+
+		showNotification(string.format("Cây táo (%.1fkg - cao %.1fm) đã trưởng thành và ra trái!", treeWeightKG, treeHeightMeters), false)
+		spawnAppleBatch()
+
+		while treeModel and treeModel.Parent do
+			task.wait(90)
+			if not treeModel or not treeModel.Parent then break end
+			spawnAppleBatch()
+		end
+	end)
+end
+
+-- Thu hoạch nhanh tất cả nông sản/trái cây chín của người chơi
+harvestAllFruitsAction = function()
+	local bp = player:FindFirstChild("Backpack") or backpack
+	local harvestedCount = 0
+
+	for _, obj in ipairs(mapFolder:GetChildren()) do
+		if obj:IsA("Model") and obj.Name == "GrowingCrop" then
+			local kind = obj:GetAttribute("CropKind")
+			if kind == "Carrot" and obj:GetAttribute("ReadyToHarvest") == true then
+				local w = obj:GetAttribute("WeightKG") or 1
+				local sc = obj:GetAttribute("Scale") or 1
+				local rew = obj:GetAttribute("RewardMoney") or 100
+				obj:Destroy()
+				createHarvestedCarrotTool(w, sc, rew).Parent = bp
+				harvestedCount = harvestedCount + 1
+			elseif kind == "RedFlower" and obj:GetAttribute("ReadyToHarvest") == true then
+				local w = obj:GetAttribute("WeightKG") or 1
+				local sc = obj:GetAttribute("Scale") or 1
+				local rew = obj:GetAttribute("RewardMoney") or 1000
+				obj:Destroy()
+				createHarvestedFlowerTool(w, sc, rew).Parent = bp
+				harvestedCount = harvestedCount + 1
+			elseif kind == "Bamboo" and obj:GetAttribute("ReadyToHarvest") == true then
+				local w = obj:GetAttribute("WeightKG") or 5
+				local sc = obj:GetAttribute("Scale") or 1
+				local rew = obj:GetAttribute("RewardMoney") or 50000
+				obj:Destroy()
+				createHarvestedBambooTool(w, sc, rew).Parent = bp
+				harvestedCount = harvestedCount + 1
+			elseif kind == "AppleTree" then
+				local fruitsFolder = obj:FindFirstChild("AppleFruits")
+				if fruitsFolder then
+					for _, fruit in ipairs(fruitsFolder:GetChildren()) do
+						if fruit:IsA("BasePart") and fruit.Name == "AppleFruit" then
+							local w = fruit:GetAttribute("WeightKG") or 1
+							local sc = fruit:GetAttribute("Scale") or 1
+							local rew = fruit:GetAttribute("RewardMoney") or 400
+							fruit:Destroy()
+							createHarvestedAppleTool(w, sc, rew).Parent = bp
+							harvestedCount = harvestedCount + 1
+						end
+					end
+				end
+			end
+		end
+	end
+
+	if harvestedCount > 0 then
+		showNotification(string.format("Đã thu hoạch %d món vào balo!", harvestedCount), false)
+		if invFrame.Visible then refreshInventoryList() end
+	else
+		showNotification("Chưa có trái cây/nông sản nào sẵn sàng để thu hoạch!", true)
+	end
+end
+
+btnHarvestAllFruits.MouseButton1Click:Connect(function()
+	if harvestAllFruitsAction then
+		harvestAllFruitsAction()
+	end
+end)
+
+-- 12. Cộng dồn Stack Hạt giống & Trồng trên khu đất đã mở rộng
+local function addSeedToBackpack(seedName, seedColor, seedMaterial, cropType, amountToAdd)
+	local amount = amountToAdd or 1
+	local bp = player:FindFirstChild("Backpack") or backpack
+	local char = player.Character
+
+	local existingTool = nil
+	for _, item in ipairs(bp:GetChildren()) do
+		if item:IsA("Tool") and item:GetAttribute("SeedCropType") == cropType then
+			existingTool = item
+			break
+		end
+	end
+	if not existingTool and char then
+		local held = char:FindFirstChildOfClass("Tool")
+		if held and held:GetAttribute("SeedCropType") == cropType then
+			existingTool = held
+		end
+	end
+
+	if existingTool then
+		local currentCount = tonumber(string.match(existingTool.Name, "x(%d+)")) or 1
+		local newCount = currentCount + amount
+		existingTool.Name = string.format("%s (x%d)", seedName, newCount)
+		existingTool.ToolTip = string.format("Số lượng: %d", newCount)
+	else
+		local tool = Instance.new("Tool")
+		tool.Name = string.format("%s (x%d)", seedName, amount)
+		tool.ToolTip = string.format("Số lượng: %d", amount)
+		tool:SetAttribute("SeedCropType", cropType)
+		tool:SetAttribute("BaseSeedName", seedName)
+
+		local handle = Instance.new("Part")
+		handle.Name = "Handle"
+		handle.Size = Vector3.new(1.2, 1.2, 1.2)
+		handle.Shape = Enum.PartType.Ball
+		handle.Color = seedColor
+		handle.Material = seedMaterial or Enum.Material.SmoothPlastic
+		handle.Parent = tool
+
+		tool.Parent = bp
+	end
+
+	if invFrame.Visible then
+		refreshInventoryList()
+	end
+end
+
+local lastPlantTick = 0
+
+local function tryPlantAtPosition(hitPosition, targetPart)
+	local now = os.clock()
+	if now - lastPlantTick < 0.01 then return end
+
+	local char = player.Character
+	local heldTool = char and char:FindFirstChildOfClass("Tool")
+	local cropType = heldTool and heldTool:GetAttribute("SeedCropType")
+	if not heldTool or not cropType or not hitPosition or not targetPart then return end
+
+	local selectedPlot = nil
+	for _, plotData in ipairs(farmPlots) do
+		if targetPart == plotData.Part then
+			selectedPlot = plotData
+			break
+		end
+	end
+
+	if not selectedPlot then return end
+
+	if selectedPlot.Owner ~= player.Name then
+		showNotification("Đây không phải khu đất của bạn!", true)
+		return
+	end
+
+	local p = selectedPlot.Part
+	local clampedX = math.clamp(hitPosition.X, p.Position.X - (p.Size.X / 2) + 2.0, p.Position.X + (p.Size.X / 2) - 2.0)
+	local clampedZ = math.clamp(hitPosition.Z, p.Position.Z - (p.Size.Z / 2) + 2.0, p.Position.Z + (p.Size.Z / 2) - 2.0)
+	local surfaceY = p.Position.Y + (p.Size.Y / 2)
+	local finalPlantPos = Vector3.new(clampedX, surfaceY, clampedZ)
+
+	for _, obj in ipairs(mapFolder:GetChildren()) do
+		if obj.Name == "GrowingCrop" then
+			local bPart = obj:FindFirstChild("Body")
+			if bPart then
+				local dist = (Vector3.new(finalPlantPos.X, 0, finalPlantPos.Z) - Vector3.new(bPart.Position.X, 0, bPart.Position.Z)).Magnitude
+				if dist < 2.2 then
+					showNotification("Không thể trồng trùng lên cây khác!", true)
+					return
+				end
+			end
+		end
+	end
+
+	lastPlantTick = now
+
+	local baseSeedName = heldTool:GetAttribute("BaseSeedName") or "Hạt giống"
+	local currentCount = tonumber(string.match(heldTool.Name, "x(%d+)")) or 1
+	if currentCount > 1 then
+		local newCount = currentCount - 1
+		heldTool.Name = string.format("%s (x%d)", baseSeedName, newCount)
+		heldTool.ToolTip = string.format("Số lượng: %d", newCount)
+	else
+		heldTool:Destroy()
+	end
+
+	if cropType == "RedFlower" then
+		growRedFlowerPlant(finalPlantPos, p)
+	elseif cropType == "AppleTree" then
+		growAppleTree(finalPlantPos, p)
+		showNotification("Đã trồng Hạt táo! Cây sẽ lớn sau 1 phút 21 giây", false)
+	elseif cropType == "Bamboo" then
+		growBambooPlant(finalPlantPos, p)
+		showNotification("Đã trồng Hạt tre! Cây tre sẽ mọc xong sau 30 giây", false)
+	else
+		growCarrotPlant(finalPlantPos, p)
+	end
+
+	if invFrame.Visible then
+		refreshInventoryList()
+	end
+end
+
+UserInputService.TouchTapInWorld:Connect(function(touchPos, processedByUI)
+	if processedByUI then return end
+	local ray = camera:ViewportPointToRay(touchPos.X, touchPos.Y)
+	local result = Workspace:Raycast(ray.Origin, ray.Direction * 250)
+	if result and result.Instance then
+		tryPlantAtPosition(result.Position, result.Instance)
+	end
+end)
+
+mouse.Button1Down:Connect(function()
+	if mouse.Target and mouse.Hit then
+		tryPlantAtPosition(mouse.Hit.Position, mouse.Target)
+	end
+end)
+
+-- 13. Spawn hạt giống liên tục theo thời gian chơi:
+-- - Carrot: Cây khởi đầu (100%), FREE
+-- - Hạt hoa: Hình cầu đỏ thường, tỷ lệ 95%, giá 850$
+-- - Táo: Hình cầu đỏ phát sáng (Neon), tỷ lệ ngẫu nhiên 35%, giá 3,000$
+-- - Tre: Hình cầu màu xanh lá cây, tỷ lệ ngẫu nhiên 20%, giá 25,000$
+local seedTypes = {
+	{
+		Id = "Carrot",
+		ObjectText = "Carrot",
+		LabelText = "Carrot\n[FREE]",
+		SeedName = "Hạt Carrot",
+		CropType = "Carrot",
+		Price = 0,
+		SpawnChance = 100,
+		SpawnWeight = 5,
+		Color = Color3.fromRGB(255, 120, 0),
+		Material = Enum.Material.SmoothPlastic,
+	},
+	{
+		Id = "RedFlower",
+		ObjectText = "Hạt hoa",
+		LabelText = "Hạt hoa\n[850 $]",
+		SeedName = "Hạt hoa",
+		CropType = "RedFlower",
+		Price = 850,
+		SpawnChance = 95,
+		SpawnWeight = 4,
+		Color = Color3.fromRGB(220, 30, 40),
+		Material = Enum.Material.SmoothPlastic,
+	},
+	{
+		Id = "AppleTree",
+		ObjectText = "Táo",
+		LabelText = "Táo\n[3,000 $]",
+		SeedName = "Hạt táo",
+		CropType = "AppleTree",
+		Price = 3000,
+		SpawnChance = 35,
+		SpawnWeight = 2,
+		Color = Color3.fromRGB(255, 25, 45),
+		Material = Enum.Material.Neon,
+	},
+	{
+		Id = "Bamboo",
+		ObjectText = "Tre",
+		LabelText = "Tre\n[25,000 $]",
+		SeedName = "Hạt tre",
+		CropType = "Bamboo",
+		Price = 25000,
+		SpawnChance = 20,
+		SpawnWeight = 2,
+		Color = Color3.fromRGB(45, 200, 65),
+		Material = Enum.Material.SmoothPlastic,
+	}
+}
+
+local function createSeedOnPath(spawnPos, seedConfig)
+	local targetFolder = (mapFolder and mapFolder.Parent) and mapFolder or Workspace
+	local seedPart = Instance.new("Part")
+	seedPart.Name = "Handle"
+	seedPart.Size = Vector3.new(1.4, 1.4, 1.4)
+	seedPart.Shape = Enum.PartType.Ball
+	seedPart.Position = spawnPos
+	seedPart.Anchored = true
+	seedPart.CanCollide = false
+	seedPart.Color = seedConfig.Color
+	seedPart.Material = seedConfig.Material or Enum.Material.SmoothPlastic
+	seedPart.Parent = targetFolder
+
+	local prompt = Instance.new("ProximityPrompt")
+	prompt.ObjectText = seedConfig.ObjectText
+	prompt.ActionText = seedConfig.Price > 0 and ("Mua (" .. seedConfig.Price .. " $)") or "Mua"
+	prompt.HoldDuration = 0.2
+	prompt.MaxActivationDistance = 7
+	prompt.RequiresLineOfSight = false
+	prompt.Parent = seedPart
+
+	local billboard = Instance.new("BillboardGui")
+	billboard.Size = UDim2.new(0, 125, 0, 42)
+	billboard.StudsOffset = Vector3.new(0, 2, 0)
+	billboard.AlwaysOnTop = true
+	billboard.Parent = seedPart
+
+	local label = Instance.new("TextLabel")
+	label.Size = UDim2.new(1, 0, 1, 0)
+	label.BackgroundTransparency = 1
+	label.Text = seedConfig.LabelText
+	label.TextColor3 = Color3.fromRGB(255, 255, 255)
+	label.TextStrokeTransparency = 0
+	label.Font = Enum.Font.GothamBold
+	label.TextScaled = true
+	label.Parent = billboard
+
+	local bought = false
+	prompt.Triggered:Connect(function(plr)
+		if plr == player and not bought then
+			if seedConfig.Price > 0 and moneyStat.Value < seedConfig.Price then
+				showNotification(string.format("Không đủ tiền! Cần %d $ để mua %s", seedConfig.Price, seedConfig.ObjectText), true)
+				return
+			end
+
+			bought = true
+			if seedConfig.Price > 0 then
+				moneyStat.Value = moneyStat.Value - seedConfig.Price
+			end
+
+			seedPart:Destroy()
+			local bonusActive = isBuyOneGetOneActive()
+			local qty = bonusActive and 2 or 1
+			addSeedToBackpack(seedConfig.SeedName, seedConfig.Color, seedConfig.Material, seedConfig.CropType, qty)
+
+			if bonusActive then
+				showNotification("Đã mua: " .. seedConfig.ObjectText .. " (+1 TẶNG 1)", false)
+			else
+				showNotification("Đã mua: " .. seedConfig.ObjectText, false)
+			end
+		end
+	end)
+
+	return seedPart
+end
+
+local startPos = Vector3.new(centerPos.X, centerPos.Y + 1.5, caveZ + 4)
+local endZ = centerPos.Z + (mapSize / 2) - 2
+
+task.spawn(function()
+	local lockedType = nil
+	local otherCountAfterLock = 0
+	local lastSpawnedType = nil
+	local currentStreak = 0
+
+	while player.Parent do
+		task.wait(2.2)
+
+		if not mapFolder or not mapFolder.Parent then
+			mapFolder = Instance.new("Folder")
+			mapFolder.Name = "CarrotFarmMap"
+			mapFolder.Parent = Workspace
+		end
+
+		local allowedTypes = {}
+		for idx = 1, #seedTypes do
+			local blockedByLock = (lockedType == idx and otherCountAfterLock < 2)
+			local blockedByStreak = (lastSpawnedType == idx and currentStreak >= 3)
+			if not blockedByLock and not blockedByStreak then
+				table.insert(allowedTypes, idx)
+			end
+		end
+
+		if #allowedTypes == 0 then
+			lockedType = nil
+			otherCountAfterLock = 0
+			currentStreak = 0
+			for idx = 1, #seedTypes do
+				if idx ~= lastSpawnedType then
+					table.insert(allowedTypes, idx)
+				end
+			end
+		end
+
+		local pool = {}
+		for _, idx in ipairs(allowedTypes) do
+			local cfg = seedTypes[idx]
+			if cfg.SpawnChance >= 100 or math.random(1, 100) <= cfg.SpawnChance then
+				local w = cfg.SpawnWeight or 2
+				for _ = 1, w do
+					table.insert(pool, idx)
+				end
+			end
+		end
+
+		local chosenType = (#pool > 0) and pool[math.random(1, #pool)] or allowedTypes[1]
+		local chosenConfig = seedTypes[chosenType]
+
+		if chosenType == lastSpawnedType then
+			currentStreak = currentStreak + 1
+		else
+			lastSpawnedType = chosenType
+			currentStreak = 1
+		end
+
+		if lockedType ~= nil and chosenType ~= lockedType then
+			otherCountAfterLock = otherCountAfterLock + 1
+			if otherCountAfterLock >= 2 then
+				lockedType = nil
+				otherCountAfterLock = 0
+			end
+		end
+
+		if currentStreak >= 3 then
+			lockedType = chosenType
+			otherCountAfterLock = 0
+		end
+
+		local seedPart = createSeedOnPath(startPos, chosenConfig)
+
+		local conn
+		conn = RunService.RenderStepped:Connect(function(dt)
+			if not seedPart or not seedPart.Parent then
+				if conn then conn:Disconnect() end
+				return
+			end
+
+			seedPart.Position = seedPart.Position + Vector3.new(0, 0, SEED_SPEED * dt)
+
+			if seedPart.Position.Z >= endZ then
+				seedPart:Destroy()
+				if conn then conn:Disconnect() end
+			end
+		end)
+	end
+end)
